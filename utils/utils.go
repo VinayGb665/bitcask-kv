@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+const INDEX_FILE_NAME = "inde-x"
 const EndString = "#@#"
 
 const MAX_VALUE_SIZE = 1024 * 1024 * 20

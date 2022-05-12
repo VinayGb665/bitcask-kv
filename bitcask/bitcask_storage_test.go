@@ -1,12 +1,10 @@
 package bitcask_storage
 
 import (
-	"bytes"
 	Utils "experiments/utils"
 	"fmt"
 	"math"
 	"math/rand"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -16,23 +14,15 @@ func TestWrite(t *testing.T) {
 	s := Storage{}
 	rand.Seed(time.Now().UnixNano())
 	s.Init("/tmp/bitcask", false, 1024*1024*1024)
-	allKeys := s.Keymap
-	key := "key2"
-	// Generate random bytes
-	// randomSize := rand.Intn(1024 * 1024 * 10)
-	randomSize := 6001561
-	key = key + strconv.Itoa(rand.Intn(256))
-	randomBytes := make([]byte, randomSize)
-	t.Logf("Size in KBs: %s", strconv.Itoa(randomSize/1024))
-	rand.Read(randomBytes)
-	// value := []byte("value")
-	err := s.Write(key, randomBytes)
+	key := "dummy-key-2"
+	value := "dummy-value"
+	err := s.Write(key, []byte(value))
 	if err != nil {
 		t.Errorf("Write failed")
 	}
-
-	if len(allKeys) == 0 {
-		t.Errorf("Keymap size is 0")
+	allKeys := s.Keymap
+	if len(allKeys) <= 1 {
+		t.Errorf("Keymap size is less than 1")
 	}
 
 }
@@ -92,13 +82,10 @@ func TestWriteRead(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	s.Init("/tmp/bitcask", false, 1024*1024*1024)
 	// allKeys := s.Keymap
-	key := "key2"
-	// Generate random bytes
-	randomSize := rand.Intn(1024 * 1024 * 10)
-	randomBytes := make([]byte, randomSize)
-	rand.Read(randomBytes)
+	key := "dummy-key"
+	value := "dummy-value"
 
-	err := s.Write(key, randomBytes)
+	err := s.Write(key, []byte(value))
 	if err != nil {
 		t.Errorf("Write failed")
 	}
@@ -106,8 +93,8 @@ func TestWriteRead(t *testing.T) {
 	if !success {
 		t.Errorf("Read failed")
 	}
-	if !bytes.Equal(randomBytes, readVal) {
-		t.Errorf("Read value is not equal to written value")
+	if string(readVal) != value {
+		t.Errorf("Read value is not correct")
 	}
 
 }

@@ -28,3 +28,20 @@ func TestSerializer(t *testing.T) {
 		t.Errorf("Serializer/Deserializer failed")
 	}
 }
+
+func TestIndexRecordEncoding(t *testing.T) {
+	key := "dummy-key"
+	value := []byte("dummy-value")
+
+	// Create Index Record
+	indexRecord := S.CreateNewIndexRecord(key, value)
+	// Encode the index record
+	encodedIndexRecord := S.EncodeIndexRecord(indexRecord)
+	// Decode the encoded index record
+	decodedIndexRecord := S.DecodeIndexRecord(encodedIndexRecord)
+	// Check if the decoded index record is the same as the original
+	if indexRecord.Key != decodedIndexRecord.Key {
+		t.Errorf("IndexRecord encoding/decoding failed")
+	}
+
+}

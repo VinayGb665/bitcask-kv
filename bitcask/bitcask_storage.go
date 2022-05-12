@@ -25,6 +25,7 @@ type KeyInfo struct {
 type Storage struct {
 	Mu           sync.Mutex
 	Dirname      string
+	IndexFile    *os.File
 	RO           bool
 	Threshold    int64 // Represents the maximum threshold of the active file
 	ActiveFile   *os.File
@@ -34,6 +35,7 @@ type Storage struct {
 }
 
 func (s *Storage) Init(dirname string, ro bool, threshold int64) {
+
 	// Do nothing
 	s.Dirname = dirname
 	s.Keymap = make(map[string]*KeyInfo)
@@ -42,6 +44,29 @@ func (s *Storage) Init(dirname string, ro bool, threshold int64) {
 	// Create directory if it doesn't exist
 
 	_ = os.Mkdir(dirname, 0777)
+
+	// Check if index file exists
+	// If it doesn't exist, create it
+	indexFilePath := dirname + "/" + Utils.INDEX_FILE_NAME
+
+	if _, err := os.Stat(indexFilePath); err == nil {
+		// Index file exists
+		// Read the index file
+		s.IndexFile, err = os.OpenFile(indexFilePath, os.O_RDWR, 0777)
+		if err != nil {
+			panic(err)
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		// Index file doesn't exist
+		// Create the index file
+		indexFile, err := os.Create(indexFilePath)
+		if err != nil {
+			panic(err)
+		}
+		s.IndexFile = indexFile
+	} else {
+		panic(err)
+	}
 
 	if s.ActiveFile == nil {
 		/*
@@ -77,6 +102,7 @@ func (s *Storage) Init(dirname string, ro bool, threshold int64) {
 		s.ActiveFileId = maxFileID
 
 	}
+
 }
 
 func (s *Storage) Write(key string, value []byte) error {
@@ -90,27 +116,19 @@ func (s *Storage) Write(key string, value []byte) error {
 		return errors.New("value is too large")
 	}
 
-	activeFileSize, _ := s.ActiveFile.Seek(0, os.SEEK_END)
-	if activeFileSize > s.Threshold {
-		// Create a new file
-		s.ActiveFile.Close()
-		s.ActiveFileId++
-		s.ActiveFile, _ = os.OpenFile(s.Dirname+"/"+strconv.Itoa(s.ActiveFileId)+".dat", os.O_RDWR|os.O_CREATE, 0777)
-		s.ActiveFile.Seek(0, os.SEEK_END)
-	}
-
-	timestamp, writeValue := S.Serialize(key, value)
-
 	// Write to end of file, record the SEEK_END position before writing
 	offset, _ := s.ActiveFile.Seek(0, os.SEEK_END)
+	indexRecord := S.CreateNewIndexRecord(key, value)
+	indexRecord.FileID = s.ActiveFileId
+	indexRecord.Offset = offset
 
-	// writeSize, err := s.ActiveFile.Write([]byte(writeValue))
-	writeSize, err := s.ActiveFile.WriteString(writeValue)
-	if err != nil {
-		return err
-	}
-	// Write a newline to the end of the file
-	_, err = s.ActiveFile.Write([]byte("\n"))
+	go s.__write_value(value)
+	// Write index record to index file
+	encodedIndexRecord := S.EncodeIndexRecord(indexRecord)
+	// Seek to end of file
+	s.IndexFile.Seek(0, os.SEEK_END)
+	// Write index record to index file
+	_, err := s.IndexFile.WriteString(encodedIndexRecord + "\n")
 	if err != nil {
 		return err
 	}
@@ -119,8 +137,8 @@ func (s *Storage) Write(key string, value []byte) error {
 		Key:       key,
 		FileID:    s.ActiveFileId,
 		Offset:    offset,
-		Size:      writeSize,
-		Timestamp: timestamp,
+		Size:      indexRecord.Size,
+		Timestamp: indexRecord.Timestamp,
 	}
 	return nil
 }
@@ -136,20 +154,31 @@ func (s *Storage) Read(key string) ([]byte, bool) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	if keyInfo, ok := s.Keymap[key]; ok {
-		// Read the value from the active file
-		s.ActiveFile.Seek(keyInfo.Offset, io.SeekStart)
-		buffer := make([]byte, keyInfo.Size)
-		reader := bufio.NewReader(s.ActiveFile)
-		_, err := reader.Read(buffer)
-		if err != nil {
-			return nil, false
+		// Check if fileId is the same as the active file id
+		if keyInfo.FileID == s.ActiveFileId {
+			// Read the value from the active file
+			s.ActiveFile.Seek(keyInfo.Offset, io.SeekStart)
+			value := make([]byte, keyInfo.Size)
+			_, err := s.ActiveFile.Read(value)
+			if err != nil {
+				return nil, false
+			}
+			return value, true
+		} else {
+			// Read the value from the inactive file
+			inactiveFile, err := os.OpenFile(s.Dirname+"/"+strconv.Itoa(keyInfo.FileID)+".dat", os.O_RDWR, 0777)
+			if err != nil {
+				return nil, false
+			}
+			inactiveFile.Seek(keyInfo.Offset, io.SeekStart)
+			value := make([]byte, keyInfo.Size)
+			_, err = inactiveFile.Read(value)
+			if err != nil {
+				return nil, false
+			}
+			inactiveFile.Close()
+			return value, true
 		}
-		// Deserialize the value
-		_, _, value, success := S.Deserialize(string(buffer), true)
-		if !success {
-			return nil, false
-		}
-		return value, true
 	}
 	return nil, false
 
@@ -164,82 +193,53 @@ func (s *Storage) Update(key string, value []byte) {
 }
 
 func (s *Storage) LoadKeys() {
-	// List all the .dat files in the directory
-	// For each file, read the file and parse the key and value
-	// Add the key and value to the keymap
+	// Read the index file
+	// For each line, deserialize the index record
+	// Add the index record to the keymap
+	s.IndexFile.Seek(0, io.SeekStart)
+	scanner := bufio.NewScanner(s.IndexFile)
+	for scanner.Scan() {
+		indexRecord := S.DecodeIndexRecord(scanner.Text())
 
-	files, _ := ioutil.ReadDir(s.Dirname)
-	for _, file := range files {
-		if file.Name()[len(file.Name())-4:] != ".dat" {
-			continue
-		}
-		fileID, _ := strconv.Atoi(file.Name()[:len(file.Name())-4])
-
-		// Open the file
-		// Read the file, split on newline
-		// For each line, parse the key and value
-		// Add the key and value to the keymap
-		// Check if fileID ends with .dat
-		// If it does, add the key and value to the keymap
-		// If it doesn't, continue
-
-		dataFile, err := os.OpenFile(s.Dirname+"/"+strconv.Itoa(fileID)+".dat", os.O_RDONLY, 0777)
-		if err != nil {
-			panic(err)
-		}
-		sc := bufio.NewScanner(dataFile)
-		// sc.Split(Utils.ByteSplitFunc)
-
-		// Set buffer size to utils.MAX_VALUE_SIZE
-		sc.Buffer(make([]byte, Utils.MAX_VALUE_SIZE), Utils.MAX_VALUE_SIZE)
-		for sc.Scan() {
-			entry := sc.Text()
-			// Get current offset
-			offset, _ := dataFile.Seek(0, io.SeekCurrent)
-
-			timestamp, key, _, success := S.Deserialize(entry, false)
-			if success {
-				// Check if the key is already in the keymap
-				// If it is, check if the timestamp is newer
-				// If it is, update the keymap
-				// If it isn't, continue
-				fileID, _ = strconv.Atoi(file.Name()[:len(file.Name())-4])
-
-				if val, ok := s.Keymap[key]; ok {
-					if val.Timestamp < timestamp {
-						s.Keymap[key] = &KeyInfo{
-							Key:       key,
-							FileID:    fileID,
-							Offset:    offset,
-							Size:      len(entry),
-							Timestamp: timestamp,
-						}
-					}
-				} else {
-					s.Keymap[key] = &KeyInfo{
-						Key:       key,
-						FileID:    fileID,
-						Offset:    offset,
-						Size:      len(entry),
-						Timestamp: timestamp,
-					}
+		// Check if the key is already in the keymap
+		if entry, ok := s.Keymap[indexRecord.Key]; ok {
+			// Compare timestamps and update if necessary
+			if indexRecord.Timestamp > entry.Timestamp {
+				s.Keymap[indexRecord.Key] = &KeyInfo{
+					Key:       indexRecord.Key,
+					FileID:    indexRecord.FileID,
+					Offset:    indexRecord.Offset,
+					Size:      indexRecord.Size,
+					Timestamp: indexRecord.Timestamp,
 				}
-
+			}
+		} else {
+			s.Keymap[indexRecord.Key] = &KeyInfo{
+				Key:       indexRecord.Key,
+				FileID:    indexRecord.FileID,
+				Offset:    indexRecord.Offset,
+				Size:      indexRecord.Size,
+				Timestamp: indexRecord.Timestamp,
 			}
 		}
-
 	}
-
 }
 
-func BitcaskStorage(dirname string) {
-	storage := Storage{Dirname: dirname, RO: false}
-	storage.Mu.Lock()
-	defer storage.Mu.Unlock()
-	// Check if the directory exists
-	// Check if writeable
+func (s *Storage) __write_value(value []byte) {
+	// Write the value to the active file
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	activeFileSize, _ := s.ActiveFile.Seek(0, os.SEEK_END)
+	if activeFileSize > s.Threshold {
+		// Create a new file
+		s.ActiveFile.Close()
+		s.ActiveFileId++
+		s.ActiveFile, _ = os.OpenFile(s.Dirname+"/"+strconv.Itoa(s.ActiveFileId)+".dat", os.O_RDWR|os.O_CREATE, 0777)
+		s.ActiveFile.Seek(0, os.SEEK_END)
+	}
 
-	// Create the directory if it doesn't exist
-	// Create the active file
-
+	_, err := s.ActiveFile.Write(value)
+	if err != nil {
+		panic(err)
+	}
 }
