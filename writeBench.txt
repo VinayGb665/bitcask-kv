@@ -1,0 +1,44 @@
+goos: linux
+goarch: amd64
+pkg: experiments/bitcask
+cpu: Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz
+BenchmarkWrites/1-8 	  111716	      9508 ns/op	    2345 B/op	      37 allocs/op
+BenchmarkWrites/2-8 	  134523	     10028 ns/op	    2330 B/op	      37 allocs/op
+BenchmarkWrites/4-8 	  124826	      9107 ns/op	    2227 B/op	      37 allocs/op
+BenchmarkWrites/8-8 	  133588	      9742 ns/op	    2435 B/op	      37 allocs/op
+BenchmarkWrites/16-8         	  134491	      9060 ns/op	    2260 B/op	      37 allocs/op
+BenchmarkWrites/32-8         	  136449	      9183 ns/op	    2356 B/op	      37 allocs/op
+BenchmarkWrites/64-8         	  132572	     11097 ns/op	    2934 B/op	      37 allocs/op
+BenchmarkWrites/128-8        	  125706	      9862 ns/op	    3072 B/op	      38 allocs/op
+BenchmarkWrites/256-8        	  120470	     11233 ns/op	    3810 B/op	      38 allocs/op
+BenchmarkWrites/512-8        	  111424	     12388 ns/op	    5261 B/op	      38 allocs/op
+BenchmarkWrites/1024-8       	   93859	     15291 ns/op	    8593 B/op	      38 allocs/op
+BenchmarkWrites/2048-8       	   61435	     21055 ns/op	   14355 B/op	      38 allocs/op
+BenchmarkWrites/4096-8       	   36981	     35720 ns/op	   27670 B/op	      38 allocs/op
+BenchmarkWrites/8192-8       	   18848	     55041 ns/op	   53270 B/op	      38 allocs/op
+BenchmarkWrites/16384-8      	   10000	    105739 ns/op	  103959 B/op	      38 allocs/op
+BenchmarkWrites/32768-8      	    8133	    201078 ns/op	  214551 B/op	      38 allocs/op
+BenchmarkWrites/65536-8      	    4062	    371723 ns/op	  394774 B/op	      38 allocs/op
+BenchmarkWrites/131072-8     	    2283	    736513 ns/op	  771608 B/op	      38 allocs/op
+BenchmarkWrites/262144-8     	     996	   1385784 ns/op	 1508886 B/op	      38 allocs/op
+BenchmarkWrites/524288-8     	     440	   2831237 ns/op	 2999828 B/op	      38 allocs/op
+BenchmarkWrites/1048576-8    	     216	   5676413 ns/op	 5965339 B/op	      38 allocs/op
+BenchmarkWrites/2097152-8    	     105	  11563914 ns/op	11912741 B/op	      38 allocs/op
+BenchmarkWrites/4194304-8    	      73	  22410804 ns/op	23791126 B/op	      38 allocs/op
+BenchmarkWrites/8388608-8    	      37	  44098655 ns/op	47564310 B/op	      38 allocs/op
+BenchmarkWrites/16777216-8   	      18	  94342520 ns/op	95094304 B/op	      38 allocs/op
+--- FAIL: BenchmarkWrites/33554432
+    bitcask_storage_test.go:156: Write failed
+--- FAIL: BenchmarkWrites/67108864
+    bitcask_storage_test.go:156: Write failed
+--- FAIL: BenchmarkWrites/134217728
+    bitcask_storage_test.go:156: Write failed
+--- FAIL: BenchmarkWrites/268435456
+    bitcask_storage_test.go:156: Write failed
+--- FAIL: BenchmarkWrites/536870912
+    bitcask_storage_test.go:156: Write failed
+--- FAIL: BenchmarkWrites
+FAIL
+exit status 1
+FAIL	experiments/bitcask	47.948s
+FAIL
