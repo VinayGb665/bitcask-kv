@@ -13,7 +13,10 @@ func TestWrite(t *testing.T) {
 
 	s := Storage{}
 	rand.Seed(time.Now().UnixNano())
+	start := time.Now()
 	s.Init("/tmp/bitcask", false, 1024*1024*1024)
+	elapsed := time.Since(start)
+	t.Logf("Load time: %s", elapsed)
 	key := "dummy-key-2"
 	value := "dummy-value"
 	err := s.Write(key, []byte(value))
@@ -21,7 +24,7 @@ func TestWrite(t *testing.T) {
 		t.Errorf("Write failed")
 	}
 	allKeys := s.Keymap
-	if len(allKeys) <= 1 {
+	if len(allKeys) < 1 {
 		t.Errorf("Keymap size is less than 1")
 	}
 
@@ -68,6 +71,7 @@ func TestMultipleWrites(t *testing.T) {
 		if err != nil {
 			t.Errorf("Write failed")
 		}
+		time.Sleep(time.Millisecond * 100)
 
 	}
 

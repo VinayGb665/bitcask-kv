@@ -3,6 +3,7 @@ package serializer
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/gob"
 	"hash/crc32"
 	"time"
@@ -98,28 +99,64 @@ func CreateNewIndexRecord(key string, value []byte) *IndexRecord {
 	return kvRecord
 }
 
-func EncodeIndexRecord(record *IndexRecord) string {
+func EncodeIndexRecord(record *IndexRecord) []byte {
 	buf := bytes.Buffer{}
-	err := gob.NewEncoder(&buf).Encode(record)
-	if err != nil {
-		panic(err)
-	}
-	serialized := base64.StdEncoding.EncodeToString(buf.Bytes())
-	return serialized
+
+	// err := gob.NewEncoder(&buf).Encode(record)
+	crcBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(crcBytes, record.Checksum)
+	buf.Write(crcBytes)
+	// keySizeBytes := make([]byte, 4)
+	// binary.LittleEndian.PutUint32(keySizeBytes, uint32(len(record.Key)))
+	// buf.Write(keySizeBytes)
+
+	fileIDBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(fileIDBytes, uint32(record.FileID))
+	buf.Write(fileIDBytes)
+	offsetBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(offsetBytes, uint64(record.Offset))
+	buf.Write(offsetBytes)
+	sizeBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(sizeBytes, uint32(record.Size))
+	buf.Write(sizeBytes)
+	timestampBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(timestampBytes, uint64(record.Timestamp))
+	buf.Write(timestampBytes)
+	keyBytes := []byte(record.Key)
+	buf.Write(keyBytes)
+	return buf.Bytes()
 }
 
-func DecodeIndexRecord(serialized string) *IndexRecord {
+func DecodeIndexRecord(serialized []byte) *IndexRecord {
 	// Decode the serialized string
-	decoded, err := base64.StdEncoding.DecodeString(serialized)
-	if err != nil {
-		return nil
-	}
+	// decoded, err := base64.StdEncoding.DecodeString(serialized)
+	// if err != nil {
+	// return nil
+	// }
 	// Deserialize the KVEntry
-	buf := bytes.NewBuffer(decoded)
+	buf := bytes.NewBuffer(serialized)
 	record := &IndexRecord{}
-	err = gob.NewDecoder(buf).Decode(record)
-	if err != nil {
-		return nil
-	}
+	crcBytes := make([]byte, 4)
+	buf.Read(crcBytes)
+	record.Checksum = binary.LittleEndian.Uint32(crcBytes)
+	// keySizeBytes := make([]byte, 4)
+	// buf.Read(keySizeBytes)
+	// keySize := int32(binary.LittleEndian.Uint32(keySizeBytes))
+	fileIDBytes := make([]byte, 4)
+	buf.Read(fileIDBytes)
+	record.FileID = int(binary.LittleEndian.Uint32(fileIDBytes))
+	offsetBytes := make([]byte, 8)
+	buf.Read(offsetBytes)
+	record.Offset = int64(binary.LittleEndian.Uint64(offsetBytes))
+	sizeBytes := make([]byte, 4)
+	buf.Read(sizeBytes)
+	record.Size = int(binary.LittleEndian.Uint32(sizeBytes))
+	timestampBytes := make([]byte, 8)
+	buf.Read(timestampBytes)
+	record.Timestamp = int64(binary.LittleEndian.Uint64(timestampBytes))
+	keyBytes := make([]byte, buf.Len())
+	buf.Read(keyBytes)
+	record.Key = string(keyBytes)
 	return record
+
 }

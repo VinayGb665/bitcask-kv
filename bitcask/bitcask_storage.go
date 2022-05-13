@@ -24,6 +24,7 @@ type KeyInfo struct {
 
 type Storage struct {
 	Mu           sync.Mutex
+	IndexMu      sync.Mutex
 	Dirname      string
 	IndexFile    *os.File
 	RO           bool
@@ -122,13 +123,26 @@ func (s *Storage) Write(key string, value []byte) error {
 	indexRecord.FileID = s.ActiveFileId
 	indexRecord.Offset = offset
 
-	go s.__write_value(value)
+	s.__write_value(value)
 	// Write index record to index file
+	s.IndexMu.Lock()
 	encodedIndexRecord := S.EncodeIndexRecord(indexRecord)
 	// Seek to end of file
 	s.IndexFile.Seek(0, os.SEEK_END)
-	// Write index record to index file
-	_, err := s.IndexFile.WriteString(encodedIndexRecord + "\n")
+
+	// Write encoded index record to index file
+	// _, err := s.IndexFile.WriteString(encodedIndexRecord + "\n")
+	_, err := s.IndexFile.Write(encodedIndexRecord)
+	if err != nil {
+		return err
+	}
+	s.IndexFile.Sync()
+	// s.IndexFile.Seek(0, os.SEEK_END)
+	_, err = s.IndexFile.WriteString("\n")
+	s.IndexFile.Sync()
+
+	s.IndexMu.Unlock()
+
 	if err != nil {
 		return err
 	}
@@ -198,9 +212,13 @@ func (s *Storage) LoadKeys() {
 	// Add the index record to the keymap
 	s.IndexFile.Seek(0, io.SeekStart)
 	scanner := bufio.NewScanner(s.IndexFile)
+	// scanner.Split(Utils.ByteSplitFunc)
 	for scanner.Scan() {
-		indexRecord := S.DecodeIndexRecord(scanner.Text())
-
+		recordBytes := scanner.Bytes()
+		indexRecord := S.DecodeIndexRecord(recordBytes)
+		if indexRecord == nil {
+			continue
+		}
 		// Check if the key is already in the keymap
 		if entry, ok := s.Keymap[indexRecord.Key]; ok {
 			// Compare timestamps and update if necessary

@@ -6,7 +6,7 @@ import (
 )
 
 const INDEX_FILE_NAME = "inde-x"
-const EndString = "#@#"
+const EndString = "EOD"
 
 const MAX_VALUE_SIZE = 1024 * 1024 * 20
 const MAX_KEY_SIZE = 1024 * 1024
