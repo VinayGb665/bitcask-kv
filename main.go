@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strconv"
 
 	Server "github.com/vinaygb665/bitcask-kv/server"
@@ -33,8 +34,15 @@ func main() {
 
 	if *serverPtr {
 		// Start server
+		serverPort := strconv.Itoa(portPtr)
 		fmt.Println("Starting server at 0.0.0.0:", portPtr)
-		Server.Start(strconv.Itoa(portPtr), *storageDir, int64(*maxFileSize))
+		envPort, err := strconv.Atoi(os.Getenv("PORT"))
+
+		if err == nil {
+			serverPort = strconv.Itoa(envPort)
+		}
+
+		Server.Start(serverPort, *storageDir, int64(*maxFileSize))
 	} else {
 		// Start client
 		fmt.Println("Starting client to ", (addressPtr))
