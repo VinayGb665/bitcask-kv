@@ -11,6 +11,22 @@ const EndString = "#@#"
 const MAX_VALUE_SIZE = 1024 * 1024 * 20
 const MAX_KEY_SIZE = 1024 * 1024
 
+type GetRequest struct {
+	Key string
+}
+type GetResponse struct {
+	Value   []byte
+	Success bool
+}
+
+type SetRequest struct {
+	Key   string
+	Value []byte
+}
+type SetResponse struct {
+	Success bool
+}
+
 func ByteSplitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
 
 	// Return nothing if at end of file and no data passed
@@ -48,4 +64,13 @@ func Average(elements []int64) int64 {
 		sum += element
 	}
 	return sum / int64(len(elements))
+}
+
+func Contains(element string, list []string) bool {
+	for _, e := range list {
+		if e == element {
+			return true
+		}
+	}
+	return false
 }

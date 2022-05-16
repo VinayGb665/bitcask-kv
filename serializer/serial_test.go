@@ -3,10 +3,11 @@ package serializer_test
 // Import serializer and deserializer
 import (
 	"bytes"
-	S "experiments/serializer"
 	"math/rand"
 	"strconv"
 	"testing"
+
+	S "github.com/vinaygb665/bitcask-kv/serializer"
 )
 
 func TestSerializer(t *testing.T) {
