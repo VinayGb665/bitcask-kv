@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"net/rpc"
 
@@ -41,10 +40,9 @@ func Start(port string, storageDir string, maxFileSize int64) {
 	rpc.HandleHTTP()
 
 	// Start http server
-	l, err := net.Listen("tcp", ":"+port)
+	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
-		panic(err)
+		fmt.Println("Error starting http server:", err)
 	}
-	http.Serve(l, nil)
 
 }
