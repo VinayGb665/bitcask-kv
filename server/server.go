@@ -16,7 +16,13 @@ type Server struct {
 
 func (s *Server) Get(req *Utils.GetRequest, res *Utils.GetResponse) error {
 	fmt.Println("Yoooo ")
-	res.Value, res.Success = s.Storage.Read(req.Key)
+	value, err := s.Storage.Read(req.Key)
+	if err != nil {
+		res.Success = false
+		return nil
+	}
+	res.Success = true
+	res.Value = value
 	return nil
 }
 func (s *Server) Set(req *Utils.SetRequest, res *Utils.SetResponse) error {

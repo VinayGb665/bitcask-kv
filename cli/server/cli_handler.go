@@ -69,8 +69,8 @@ func GetCommandHandler(args []string, client *Bitcask.Storage) string {
 		return "Usage get <key>"
 	}
 	// Do nothing
-	readVal, success := client.Read(args[0])
-	if success {
+	readVal, err := client.Read(args[0])
+	if err != nil {
 		return string(readVal)
 	}
 	return "nil"
