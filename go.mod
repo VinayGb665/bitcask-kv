@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/abiosoft/ishell v2.0.0+incompatible
 	github.com/schollz/progressbar/v3 v3.8.6
+	github.com/tidwall/btree v1.3.1
 )
 
 require (
