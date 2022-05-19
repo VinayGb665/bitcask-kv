@@ -1,7 +1,7 @@
 # Bitcask-KV
 ## Help me if you've already worked on things like this or just wanna hangout
 
-[![Build Status](https://github.com/VinayGb665/bitcask-kv/actions/workflows/build.yml/badge.svg)]
+![Build Status](https://github.com/VinayGb665/bitcask-kv/actions/workflows/build.yml/badge.svg)
 
 
 
