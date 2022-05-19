@@ -22,7 +22,7 @@ func TestWrite(t *testing.T) {
 		t.Errorf("Write failed")
 	}
 	allKeys := s.Keymap
-	if len(allKeys) <= 1 {
+	if len(allKeys) < 1 {
 		t.Errorf("Keymap size is less than 1")
 	}
 
@@ -91,11 +91,11 @@ func TestWriteRead(t *testing.T) {
 
 	err := s.Write(key, []byte(value))
 	if err != nil {
-		t.Errorf("Write failed")
+		t.Errorf("Write failed, got error: %v", err)
 	}
-	readVal, success := s.Read(key)
-	if !success {
-		t.Errorf("Read failed")
+	readVal, err := s.Read(key)
+	if err != nil {
+		t.Errorf("Read failed, got value %v %s", readVal, err)
 	}
 	if string(readVal) != value {
 		t.Errorf("Read value is not correct")
@@ -113,8 +113,8 @@ func TestMultiRead(t *testing.T) {
 	// Iterate over all keys in the keymap
 	for key := range allKeys {
 		start := time.Now()
-		_, success := s.Read(key)
-		if !success {
+		_, err := s.Read(key)
+		if err != nil {
 			t.Errorf("Read failed")
 		}
 		readTimes = append(readTimes, time.Since(start).Nanoseconds())
@@ -127,7 +127,7 @@ func TestMultiRead(t *testing.T) {
 
 func BenchmarkWrites(b *testing.B) {
 	var exponentialInputSizes []int
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 10; i++ {
 		exponentialInputSizes = append(exponentialInputSizes, int(math.Pow(2, float64(i))))
 	}
 
@@ -148,5 +148,28 @@ func BenchmarkWrites(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestTimestampScan(t *testing.T) {
+	s := Storage{}
+	rand.Seed(time.Now().UnixNano())
+	s.Init("/tmp/bitcask", false, 1024*1024*1024)
+	req := &Utils.ScanKeysRequest{
+		OlderThan: (time.Now().Unix() - 100),
+	}
+	time.Sleep(time.Second * 1)
+	// Write 2 keys with timestamps older than now
+	key1 := "key1"
+	// key2 := "key4"
+	value := "value1"
+	s.Write(key1, []byte(value))
+	// s.Write(key2, []byte(value))
+
+	// Scan for keys older than now
+	resp := s.Scankeys(req)
+	allKeys := s.Keymap
+	if len(resp.Keys) != 2 {
+		t.Errorf("Expected 2 keys, got %d %d", len(resp.Keys), len(allKeys))
 	}
 }
