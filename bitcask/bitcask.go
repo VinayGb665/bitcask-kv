@@ -3,9 +3,7 @@ package bitcask
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"sync"
@@ -16,194 +14,165 @@ import (
 	S "github.com/vinaygb665/bitcask-kv/serializer"
 
 	"github.com/schollz/progressbar/v3"
+	"github.com/tidwall/btree"
 )
 
-type KeyInfo struct {
-	Key       string
-	FileID    int
-	Offset    int64
-	Size      int
-	Timestamp int64
-}
-
 type Storage struct {
-	Mu           sync.Mutex
-	Dirname      string
-	IndexFile    *os.File
-	RO           bool
-	Threshold    int64 // Represents the maximum threshold of the active file
-	ActiveFile   *os.File
-	ActiveFileId int
-	// Keymap maps keys to the fileid, offset and size of the value
-	Keymap map[string]*KeyInfo
+	Mu            sync.Mutex
+	IndexLock     sync.Mutex
+	Threshold     int64                         // Represents the maximum threshold of the active file
+	RO            bool                          // Represents if the storage is read only
+	Dirname       string                        // Represents the directory name
+	IndexFile     *os.File                      // Represents the index file
+	ActiveFile    *os.File                      // Represents the active file
+	ActiveFileId  int                           // Represents the active file id
+	Keymap        map[string]*Utils.KeyInfo     // Represents the hashmap of keys
+	TimestampTree *btree.Generic[Utils.KeyInfo] // Represents the btree of Keys with
+	KeyTree       *btree.Generic[Utils.KeyInfo] // Represents the btree of keys
+	SizeTree      *btree.Generic[Utils.KeyInfo] // Represents the btree of keys
 }
 
 func (s *Storage) Init(dirname string, ro bool, threshold int64) {
 
-	// Do nothing
+	// Basic inits create all default values
 	s.Dirname = dirname
-	s.Keymap = make(map[string]*KeyInfo)
 	s.Threshold = threshold
+	s.Keymap = make(map[string]*Utils.KeyInfo)
+	s.TimestampTree, s.KeyTree, s.SizeTree = Utils.InitializeIndexTrees()
 
-	// Create directory if it doesn't exist
-
-	_ = os.Mkdir(dirname, 0777)
-
-	// Check if index file exists
-	// If it doesn't exist, create it
-	indexFilePath := dirname + "/" + Utils.INDEX_FILE_NAME
-
-	if _, err := os.Stat(indexFilePath); err == nil {
-		// Index file exists
-		// Read the index file
-		s.IndexFile, err = os.OpenFile(indexFilePath, os.O_RDWR, 0777)
-		if err != nil {
-			panic(err)
-		}
-	} else if errors.Is(err, os.ErrNotExist) {
-		// Index file doesn't exist
-		// Create the index file
-		indexFile, err := os.Create(indexFilePath)
-		if err != nil {
-			panic(err)
-		}
-		s.IndexFile = indexFile
-	} else {
+	// Initialize index file related data
+	indexFile, err := Utils.InitializeIndex(dirname)
+	if err != nil {
 		panic(err)
 	}
+	s.IndexFile = indexFile
 
 	if s.ActiveFile == nil {
-		/*
-			Iterate through the directory and find the filename that has the highest fileid
-			Set the active file to that file
-			Set the threshold to the threshold
-			Create the active file and set its name to 1000.dat
 
-		*/
-		files, err := ioutil.ReadDir(s.Dirname)
-		if err != nil {
-			panic(err)
-		}
-		var maxFileID int = 0
-		for _, file := range files {
-			fileID, err := strconv.Atoi(file.Name()[:len(file.Name())-4])
-
-			if err != nil {
-				continue
-			}
-			if fileID > maxFileID {
-				maxFileID = fileID
-			}
-		}
-		if maxFileID == 0 {
-			maxFileID = 1000
+		activeFileId := Utils.InitializeDataFiles(dirname)
+		if activeFileId == 0 {
+			activeFileId = 1000
 		} else {
 			s.LoadKeys()
 		}
 
-		file, _ := os.OpenFile(s.Dirname+"/"+strconv.Itoa(maxFileID)+".dat", os.O_RDWR|os.O_CREATE, 0777)
+		file, _ := os.OpenFile(s.Dirname+"/"+strconv.Itoa(activeFileId)+".dat", os.O_RDWR|os.O_CREATE, 0777)
 		s.ActiveFile = file
-		s.ActiveFileId = maxFileID
+		s.ActiveFileId = activeFileId
 
 	}
 
 }
 
 func (s *Storage) Write(key string, value []byte) error {
-	// Open the active file and check if it is full/threshold is reached
-	// If it is, create a new file and update the active file
-	// If it is not, append the value to the active file
-	// Update the keymap
 
 	// Check if the active file is full
 	if len(value) > Utils.MAX_VALUE_SIZE {
 		return errors.New("value is too large")
 	}
 
-	// Write to end of file, record the SEEK_END position before writing
-	offset, _ := s.ActiveFile.Seek(0, os.SEEK_END)
-	indexRecord := S.CreateNewIndexRecord(key, value)
-	indexRecord.FileID = s.ActiveFileId
-	indexRecord.Offset = offset
-
-	go s.__write_value(value)
-	// Write index record to index file
-	encodedIndexRecord := S.EncodeIndexRecord(indexRecord)
-	// Seek to end of file
-	s.IndexFile.Seek(0, os.SEEK_END)
-	// Write index record to index file
-	_, err := s.IndexFile.WriteString(encodedIndexRecord + "\n")
+	err := s.UpdateIndex(key, value)
 	if err != nil {
 		return err
 	}
+	writeSuccess := make(chan bool)
+	go s.__write_value(value, writeSuccess)
+	if <-writeSuccess {
+		return nil
+	}
+	return errors.New("error writing value")
+	// Write index record to index file
 
-	s.Keymap[key] = &KeyInfo{
+	return nil
+}
+
+func (s *Storage) UpdateIndex(key string, value []byte) (err error) {
+	s.IndexLock.Lock()
+	defer s.IndexLock.Unlock()
+	s.IndexFile.Seek(0, os.SEEK_END)
+	offset, _ := s.ActiveFile.Seek(0, os.SEEK_END)
+
+	indexRecord := S.CreateNewIndexRecord(key, value)
+	indexRecord.FileID = s.ActiveFileId
+	indexRecord.Offset = offset
+	encodedIndexRecord := S.EncodeIndexRecord(indexRecord)
+
+	_, err = s.IndexFile.WriteString(encodedIndexRecord + "\n")
+	rec := &Utils.KeyInfo{
 		Key:       key,
 		FileID:    s.ActiveFileId,
 		Offset:    offset,
 		Size:      indexRecord.Size,
 		Timestamp: indexRecord.Timestamp,
 	}
-	return nil
+	s.__update_index_trees(rec)
+	return
+	// s.__write_value(value)
+
 }
 
-func (s *Storage) Read(key string) ([]byte, bool) {
-	/*
-		Check if the key is in the keymap
-		- Read the value from the active file
-		- Deserialize the value
-		- Return the value
+func (s *Storage) __update_index_trees(rec *Utils.KeyInfo) {
+	// Update keymap
+	s.Keymap[rec.Key] = rec
+	// Update index trees
+	s.TimestampTree.Set(*rec)
+	s.KeyTree.Set(*rec)
+	s.SizeTree.Set(*rec)
+}
 
-	*/
+func (s *Storage) Read(key string) ([]byte, error) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	if keyInfo, ok := s.Keymap[key]; ok {
 		// Check if fileId is the same as the active file id
-		if keyInfo.FileID == s.ActiveFileId {
-			// Read the value from the active file
-			s.ActiveFile.Seek(keyInfo.Offset, io.SeekStart)
-			value := make([]byte, keyInfo.Size)
-			_, err := s.ActiveFile.Read(value)
-			if err != nil {
-				return nil, false
-			}
-			return value, true
-		} else {
-			// Read the value from the inactive file
-			inactiveFile, err := os.OpenFile(s.Dirname+"/"+strconv.Itoa(keyInfo.FileID)+".dat", os.O_RDWR, 0777)
-			if err != nil {
-				return nil, false
-			}
-			inactiveFile.Seek(keyInfo.Offset, io.SeekStart)
-			value := make([]byte, keyInfo.Size)
-			_, err = inactiveFile.Read(value)
-			if err != nil {
-				return nil, false
-			}
-			inactiveFile.Close()
-			return value, true
+		val, err := s.__read_value(keyInfo)
+		if err != nil {
+			return nil, err
 		}
+		return val, nil
 	}
-	return nil, false
+	return nil, errors.New("key not found")
 
+}
+
+func (s *Storage) __read_value(record *Utils.KeyInfo) (value []byte, err error) {
+
+	var dataFile *os.File
+	var close bool
+	val := make([]byte, record.Size)
+
+	if record.FileID == s.ActiveFileId {
+		dataFile = s.ActiveFile
+		close = false
+	} else {
+		dataFile, err = os.OpenFile(s.Dirname+"/"+strconv.Itoa(record.FileID)+".dat", os.O_RDWR, 0777)
+		if err != nil {
+			return nil, err
+		}
+		close = true
+	}
+
+	dataFile.Seek(record.Offset, io.SeekStart)
+	_, err = dataFile.Read(val)
+	if err != nil {
+		return nil, err
+	}
+	// value = val
+	if close {
+		dataFile.Close()
+	}
+	return val, nil
 }
 
 func (s *Storage) Delete(key string) {
 	// Do nothing
 }
 
-func (s *Storage) Update(key string, value []byte) {
-	// Do nothing
-}
-
 func (s *Storage) LoadKeys() {
-	// Read the index file
-	// For each line, deserialize the index record
-	// Add the index record to the keymap
+
 	indexFileSize, err := s.IndexFile.Seek(0, io.SeekEnd)
 	var bar *progressbar.ProgressBar = nil
 	if err == nil {
-		fmt.Print("Non empty	")
 		bar = progressbar.DefaultBytes(indexFileSize, "Indexfile read")
 	}
 
@@ -211,28 +180,23 @@ func (s *Storage) LoadKeys() {
 	scanner := bufio.NewScanner(s.IndexFile)
 	for scanner.Scan() {
 		indexRecord := S.DecodeIndexRecord(scanner.Text())
-
+		newRec := &Utils.KeyInfo{
+			Key:       indexRecord.Key,
+			FileID:    indexRecord.FileID,
+			Offset:    indexRecord.Offset,
+			Size:      indexRecord.Size,
+			Timestamp: indexRecord.Timestamp,
+		}
 		// Check if the key is already in the keymap
 		if entry, ok := s.Keymap[indexRecord.Key]; ok {
 			// Compare timestamps and update if necessary
 			if indexRecord.Timestamp > entry.Timestamp {
-				s.Keymap[indexRecord.Key] = &KeyInfo{
-					Key:       indexRecord.Key,
-					FileID:    indexRecord.FileID,
-					Offset:    indexRecord.Offset,
-					Size:      indexRecord.Size,
-					Timestamp: indexRecord.Timestamp,
-				}
+				s.__update_index_trees(newRec)
 			}
 		} else {
-			s.Keymap[indexRecord.Key] = &KeyInfo{
-				Key:       indexRecord.Key,
-				FileID:    indexRecord.FileID,
-				Offset:    indexRecord.Offset,
-				Size:      indexRecord.Size,
-				Timestamp: indexRecord.Timestamp,
-			}
+			s.__update_index_trees(newRec)
 		}
+
 		// Update bar with current offset of indexfile
 		if bar != nil {
 			curOffset, _ := s.IndexFile.Seek(0, io.SeekCurrent)
@@ -241,7 +205,7 @@ func (s *Storage) LoadKeys() {
 	}
 }
 
-func (s *Storage) __write_value(value []byte) {
+func (s *Storage) __write_value(value []byte, success chan bool) {
 	// Write the value to the active file
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -258,4 +222,57 @@ func (s *Storage) __write_value(value []byte) {
 	if err != nil {
 		panic(err)
 	}
+	success <- true
+}
+
+func (s *Storage) Scankeys(request *Utils.ScanKeysRequest) (result *Utils.ScanKeysResponse) {
+	// Check if scan request is based on timestamp or key or size
+	// If timestamp, scan the timestamp tree
+	// If key, scan the key tree
+	// If size, scan the size tree
+
+	if request.OlderThan != 0 {
+		result = s.__scan_timestamp(request)
+		return
+	} else if request.KeyGreaterThan != "" {
+		result = s.__scan_keys(request)
+		return
+	}
+
+	return
+}
+
+func (s *Storage) __scan_timestamp(request *Utils.ScanKeysRequest) (result *Utils.ScanKeysResponse) {
+	// Scan the timestamp tree
+	// Create a new ScanKeysResponse
+	// Iterate over the tree and add all keys to the ScanKeysResponse
+	// Return the ScanKeysResponse
+	resp := &Utils.ScanKeysResponse{}
+	key := &Utils.KeyInfo{
+		Timestamp: request.OlderThan,
+	}
+	s.TimestampTree.Ascend(*key, func(item Utils.KeyInfo) bool {
+		resp.Keys = append(resp.Keys, item)
+		return true
+	})
+
+	return resp
+
+}
+
+func (s *Storage) __scan_keys(request *Utils.ScanKeysRequest) (result *Utils.ScanKeysResponse) {
+	// Scan the key tree
+	// Create a new ScanKeysResponse
+	// Iterate over the tree and add all keys to the ScanKeysResponse
+	// Return the ScanKeysResponse
+	resp := &Utils.ScanKeysResponse{}
+	key := &Utils.KeyInfo{
+		Key: request.KeyGreaterThan,
+	}
+	s.KeyTree.Ascend(*key, func(item Utils.KeyInfo) bool {
+		resp.Keys = append(resp.Keys, item)
+		return true
+	})
+
+	return resp
 }
